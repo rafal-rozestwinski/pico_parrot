@@ -20,7 +20,7 @@
 #define ADC_SAMPLE_RATE 8000
 #define SAMPLE_SIZE (sizeof(uint8_t))
 #define MIC_SAMPLES_BUFFER_SIZE (BUFFER_SIZE_IN_SECONDS*ADC_SAMPLE_RATE*SAMPLE_SIZE)
-#define SLEEP_TIME ((float)1/ADC_SAMPLE_RATE)
+#define SLEEP_TIME_US (unsigned)(((float)1/ADC_SAMPLE_RATE)*1000000)
 uint8_t MIC_SAMPLES[MIC_SAMPLES_BUFFER_SIZE];
 uint32_t MIC_SAMPLES_POS = 0;
 
@@ -125,6 +125,6 @@ int main(void) {
         if(adc_raw > HIGH_VOX_VALUE || adc_raw < LOW_VOX_VALUE) {
             recording = true;
         }
-        sleep_ms(SLEEP_TIME);
+        sleep_us(SLEEP_TIME_US);
     }
 }
