@@ -5,6 +5,8 @@
 #include "hardware/adc.h"
 #include "hardware/sync.h" // wait for interrupt 
  
+//#define RR_DEBUG 1
+
 // Audio PIN is to match some of the design guide shields. 
 #define AUDIO_PIN 28  // you can change this to whatever you like
 
@@ -24,6 +26,7 @@
 uint8_t MIC_SAMPLES[MIC_SAMPLES_BUFFER_SIZE];
 uint32_t MIC_SAMPLES_POS = 0;
 
+volatile uint8_t g_last_sample;
 
 #define VOX_DELTA 30
 #define HIGH_VOX_VALUE (125+VOX_DELTA)
@@ -45,8 +48,13 @@ int wav_position = 0;
  * adjust by factor of 8   (this is what bitshifting <<3 is doing)
  * 
  */
+
+#define PLAYBACK_ADC 1
 void pwm_interrupt_handler() {
     pwm_clear_irq(pwm_gpio_to_slice_num(AUDIO_PIN));    
+    #if PLAYBACK_ADC
+        pwm_set_gpio_level(AUDIO_PIN, g_last_sample);  
+    #else
     if (wav_position < (WAV_DATA_LENGTH<<3) - 1) { 
         // set pwm level 
         // allow the pwm value to repeat for 8 cycles this is >>3 
@@ -56,6 +64,7 @@ void pwm_interrupt_handler() {
         // reset to start
         wav_position = 0;
     }
+    #endif
 }
 
 int main(void) {
@@ -114,14 +123,16 @@ int main(void) {
     // Wiring up the device requires 3 jumpers, to connect VCC (3.3v), GND, and AOUT. The example here uses ADC0, which is GP26. Power is supplied from the 3.3V pin.
     // NOTE: uint8_t unsigned samples. Ensure bias of 0.5VCC at the Mic pin!
     uint adc_raw;
-    uint8_t sample;
+    
     bool recording = false;
     while(1) {
         //__wfi(); // Wait for Interrupt
         adc_raw = adc_read(); // raw voltage from ADC
-        sample = adc_raw >> 4; // shift to save only 8 bits
-        float adc_f = adc_raw * ADC_CONVERT;
-        printf("%.2f %u %u\n", adc_f, (unsigned)adc_raw, (unsigned)sample);
+        g_last_sample = adc_raw >> 4; // shift to save only 8 bits
+        #ifdef RR_DEBUG
+            float adc_f = adc_raw * ADC_CONVERT;
+            printf("%.2f %u %u\n", adc_f, (unsigned)adc_raw, (unsigned)g_last_sample);
+        #endif
         if(adc_raw > HIGH_VOX_VALUE || adc_raw < LOW_VOX_VALUE) {
             recording = true;
         }
