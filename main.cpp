@@ -204,6 +204,8 @@ int main(void) {
                     sleep_us(100);
                 }
                 printf("playback complete.\n");
+                // FIXME: release PTT
+                // sleep
                 continue;
             } else {
                 //printf("%u ", MIC_SAMPLES_POS);
