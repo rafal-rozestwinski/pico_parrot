@@ -17,5 +17,5 @@ cmake ..
 make
 cd ..
 ./picoload.sh build/pico_parrot.uf2 
-sleep 1
+sleep 3
 miniterm /dev/ttyACM0 921600

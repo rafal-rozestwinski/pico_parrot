@@ -17,9 +17,12 @@
 #define ADC_RANGE (1 << 12)
 #define ADC_CONVERT (ADC_VREF / (ADC_RANGE - 1))
 
+//#define PLAYBACK_ADC 1
 
-#define BUFFER_SIZE_IN_SECONDS 15
-#define ADC_SAMPLE_RATE 8000
+#define BUFFER_SIZE_IN_SECONDS 5
+#define ADC_SAMPLE_RATE 11000
+//#define ADC_SAMPLE_RATE 8000
+//#define ADC_SAMPLE_RATE 44000
 #define SAMPLE_SIZE (sizeof(uint8_t))
 #define MIC_SAMPLES_BUFFER_SIZE (BUFFER_SIZE_IN_SECONDS*ADC_SAMPLE_RATE*SAMPLE_SIZE)
 #define SLEEP_TIME_US (unsigned)(((float)1/ADC_SAMPLE_RATE)*1000000)
@@ -28,7 +31,7 @@ uint32_t MIC_SAMPLES_POS = 0;
 
 volatile uint8_t g_last_sample;
 
-#define VOX_DELTA 30
+#define VOX_DELTA 40
 #define HIGH_VOX_VALUE (125+VOX_DELTA)
 #define LOW_VOX_VALUE (125-VOX_DELTA)
 
@@ -39,7 +42,7 @@ volatile uint8_t g_last_sample;
  */
 #include "sample.h"
 int wav_position = 0;
-
+int beep_position = 0;
 /*
  * PWM Interrupt Handler which outputs PWM level and advances the 
  * current sample. 
@@ -49,12 +52,17 @@ int wav_position = 0;
  * 
  */
 
-#define PLAYBACK_ADC 1
+bool recording = false;
+bool playback = false;
+bool play_beep_begin = false;
+bool play_beep_end = false;
+
 void pwm_interrupt_handler() {
     pwm_clear_irq(pwm_gpio_to_slice_num(AUDIO_PIN));    
     #if PLAYBACK_ADC
         pwm_set_gpio_level(AUDIO_PIN, g_last_sample);  
     #else
+    #ifdef PLAYBACK_WAV
     if (wav_position < (WAV_DATA_LENGTH<<3) - 1) { 
         // set pwm level 
         // allow the pwm value to repeat for 8 cycles this is >>3 
@@ -64,6 +72,47 @@ void pwm_interrupt_handler() {
         // reset to start
         wav_position = 0;
     }
+    #else 
+    if(playback) {
+        if(play_beep_begin) {
+            if (beep_position < (WAV_DATA_LENGTH<<3) - 1) { 
+                // set pwm level 
+                // allow the pwm value to repeat for 8 cycles this is >>3 
+                pwm_set_gpio_level(AUDIO_PIN, WAV_DATA[beep_position>>3]);  
+                beep_position++;
+            } else {
+                // reset to start
+                beep_position = 0;
+                play_beep_begin = false;
+                pwm_set_gpio_level(AUDIO_PIN, 0);  
+            }
+        } else if (play_beep_end) { 
+            if (beep_position < (WAV_DATA_LENGTH<<3) - 1) { 
+                // set pwm level 
+                // allow the pwm value to repeat for 8 cycles this is >>3 
+                pwm_set_gpio_level(AUDIO_PIN, WAV_DATA[beep_position>>3]);  
+                beep_position++;
+            } else {
+                // reset to start
+                beep_position = 0;
+                playback = false;
+                play_beep_end = false;
+                play_beep_begin = false;
+                pwm_set_gpio_level(AUDIO_PIN, 0);  
+            }    
+        } else if (wav_position < (MIC_SAMPLES_BUFFER_SIZE<<3) - 1) { 
+            // set pwm level 
+            // allow the pwm value to repeat for 8 cycles this is >>3 
+            pwm_set_gpio_level(AUDIO_PIN, MIC_SAMPLES[wav_position>>3]);  
+            wav_position++;
+        } else {
+            // reset to start
+            wav_position = 0;
+            play_beep_end = true;
+             
+        }
+    }
+    #endif // normal
     #endif
 }
 
@@ -104,8 +153,10 @@ int main(void) {
      *  4.0f for 22 KHz
      *  2.0f for 44 KHz etc
      */
-    pwm_config_set_clkdiv(&config, 11.0f); 
-    //pwm_config_set_clkdiv(&config, 8.0f); 
+    //pwm_config_set_clkdiv(&config, 2.0f); // 44kHz
+    //pwm_config_set_clkdiv(&config, 11.0f);  //8kHz
+    pwm_config_set_clkdiv(&config, 8.0f); // 11kHz
+
     pwm_config_set_wrap(&config, 250); 
     pwm_init(audio_pin_slice, &config, true);
 
@@ -124,7 +175,7 @@ int main(void) {
     // NOTE: uint8_t unsigned samples. Ensure bias of 0.5VCC at the Mic pin!
     uint adc_raw;
     
-    bool recording = false;
+    
     while(1) {
         //__wfi(); // Wait for Interrupt
         adc_raw = adc_read(); // raw voltage from ADC
@@ -133,8 +184,36 @@ int main(void) {
             float adc_f = adc_raw * ADC_CONVERT;
             printf("%.2f %u %u\n", adc_f, (unsigned)adc_raw, (unsigned)g_last_sample);
         #endif
-        if(adc_raw > HIGH_VOX_VALUE || adc_raw < LOW_VOX_VALUE) {
+        //printf("recording? %u\n", (unsigned)recording);
+        if((g_last_sample > HIGH_VOX_VALUE || g_last_sample < LOW_VOX_VALUE) && !recording) {
+            printf("Recording, sample value: %u\n", (unsigned)g_last_sample);
             recording = true;
+            MIC_SAMPLES_POS = 0;
+        }
+        if(recording) {
+            if(MIC_SAMPLES_POS > (MIC_SAMPLES_BUFFER_SIZE-10)) {
+                recording = false;
+                playback = true;
+                wav_position = 0;
+                play_beep_begin = true;
+                play_beep_end = false;
+                printf("PTT!\n");
+                // FIXME: press PTT
+                // sleep
+                while(playback) {
+                    sleep_us(100);
+                }
+                printf("playback complete.\n");
+                continue;
+            } else {
+                //printf("%u ", MIC_SAMPLES_POS);
+            }
+            MIC_SAMPLES[MIC_SAMPLES_POS] = g_last_sample;
+            MIC_SAMPLES_POS++;
+            //printf("pos %u \n", MIC_SAMPLES_POS);
+
+        } else {
+            //printf("not recording!\n");
         }
         sleep_us(SLEEP_TIME_US);
     }
