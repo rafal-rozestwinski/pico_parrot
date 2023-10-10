@@ -1,0 +1,26 @@
+﻿Designator,Footprint,Quantity,Value,LCSC Part #
+3.3V,TestPoint_Pad_2.0x2.0mm,1,TestPoint3.3,
+"C1, C12, C3, C6, C9",1206,5,100nF,
+"C10, C11, C8",1206,3,10uF,
+"C13, C14, C16, C18",C_Disc_D4.3mm_W1.9mm_P5.00mm,4,10uF,DNP
+"C15, C17, C4, C5",C_Disc_D4.3mm_W1.9mm_P5.00mm,4,100nF,DNP
+C2,1206,1,47uF,
+C7,CP_Radial_D5.0mm_P2.50mm,1,47uF,DNP
+J_baofeng_2.5mm,PJ-307_Modded,1,AudioJack3_BaofengSpeaker,
+J_baofeng_3.5mm,PJ-307_Modded,1,AudioJack3_BaofengMicPort,
+Q1,TO-92_Inline,1,2N3904,
+Q2,SOT-23,1,MMBT3904,DNP
+R1,1206,1,220R,
+R10,1206,1,100R,
+"R11, R12",R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical,2,1.8K,DNP
+"R13, R14",1206,2,500R,DNP
+R2,R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical,1,100R,DNP
+"R3, R6",1206,2,1.8K,
+"R4, R5",R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical,2,68k,DNP
+"R7, R8",1206,2,68k,
+R9,R_Axial_DIN0207_L6.3mm_D2.5mm_P2.54mm_Vertical,1,220R,DNP
+"RV1, RV2",Potentiometer_Runtron_RM-065_Vertical,2,1k,
+TP2,TestPoint_Pad_2.0x2.0mm,1,GND,
+U1,RPi_Pico_SMD_TH,1,Pico,
+U2,SOT-223-3_TabPin2,1,AMS1117-5.0,
+VCC,TestPoint_Pad_2.0x2.0mm,1,TestPointVCC,
