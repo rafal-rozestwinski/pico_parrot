@@ -42,3 +42,9 @@ All part values are written on the PCB itself.
   - 2x 68k (or 56k... or 92k etc.) 
 
 Optional power supply regulator pads are for AMS1117-5.0V.
+
+## Future Plans
+
+- Detect end of transmission and play back sooner.
+- Easy way to change beep: littlefs has been added, need to add USB Mass Storage support, so those can be replaced without recompiling the code.
+- Remote control over USB?
