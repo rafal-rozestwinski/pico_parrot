@@ -4,7 +4,8 @@ Baofeng Parrot Simplex Repeater by Rafał Rozestwiński, https://github.com/rafa
 
 - Listens for transmission
 - If audio level is high, it records audio for 10s
-- After 10s, plays beep
+- After 10s, triggers PTT on baofeng,
+- plays beep (from sample.h)
 - then plays recorded audio
 - Then plays beep.
 
