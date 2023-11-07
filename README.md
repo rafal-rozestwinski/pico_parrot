@@ -16,6 +16,8 @@ Refer to it on how to generate own sample.h header with a custom beep (you may w
 
 ![front](/img/board_photo.jpeg)
 
+![front](/img/boards.jpeg)
+
 ## Schematic
 
 [schematic.pdf](/schematic.pdf)
