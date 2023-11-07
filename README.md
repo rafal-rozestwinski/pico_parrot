@@ -27,16 +27,16 @@ Refer to it on how to generate own sample.h header with a custom beep (you may w
 Footprints are duplicated - either SMT or THT parts can be used.
 All part values are written on the PCB itself.
 
-1x Raspberry Pi Pico
-1x BJT transistor 2n3904
-2x PCB Audio Jack Socket PJ-307
-2x 100nF capacitor
-1x bigger capacitor (10uF+)
-Resitors:
- - 2x 1000R pot, tht, RM-065_Vertical
- - 220
- - 100
- - 2x 1.8k
- - 2x 68k (or 56k... or 92k etc.) 
+- 1x Raspberry Pi Pico
+- 1x BJT transistor 2n3904
+- 2x PCB Audio Jack Socket PJ-307
+- 2x 100nF capacitor
+- 1x bigger capacitor (10uF+)
+- Resitors:
+  - 2x 1000R pot, tht, RM-065_Vertical
+  - 220
+  - 100
+  - 2x 1.8k
+  - 2x 68k (or 56k... or 92k etc.) 
 
 Optional power supply regulator pads are for AMS1117-5.0V.
