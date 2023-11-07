@@ -1,6 +1,6 @@
 # pico_parrot
 
-Baofeng Parrot Simplex Repeater
+Baofeng Parrot Simplex Repeater by Rafał Rozestwiński, https://github.com/rafal-rozestwinski/pico_parrot
 
 - Listens for transmission
 - If audio level is high, it records audio for 10s
