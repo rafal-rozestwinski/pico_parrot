@@ -49,3 +49,4 @@ Optional power supply regulator pads are for AMS1117-5.0V.
 - Detect end of transmission and play back sooner.
 - Easy way to change beep: littlefs has been added, need to add USB Mass Storage support, so those can be replaced without recompiling the code.
 - Remote control over USB?
+- 3D printed case
