@@ -2,12 +2,12 @@
 
 Baofeng Parrot Simplex Repeater by Rafał Rozestwiński, https://github.com/rafal-rozestwinski/pico_parrot
 
-- Listens for transmission
-- If audio level is high, it records audio for 10s
+- Listens for transmission,
+- If audio level is high, it records audio for 10s,
 - After 10s, triggers PTT on baofeng,
-- plays beep (from sample.h)
-- then plays recorded audio
-- Then plays beep.
+- plays beep (from sample.h),
+- plays recorded audio,
+- plays beep, releases PTT.
 
 Based on https://github.com/rgrosset/pico-pwm-audio
 
