@@ -80,6 +80,7 @@ int filesystem_ops() {
 
     // print the boot count
     printf("boot_count: %d\n", boot_count);
+    return 0;
 }
 
 
@@ -217,8 +218,8 @@ int main(void) {
         gpio_put(LED_PIN, 0);
         sleep_ms(1000);
     }
-    printf("filesystem_ops()...\n");
-    filesystem_ops();
+    //printf("filesystem_ops()...\n");
+    //filesystem_ops();
 
     printf("Started.\n");
     while(1) {
