@@ -1,10 +1,12 @@
 #include <stdio.h>
+#include <math.h>
 #include "pico/stdlib.h"   // stdlib 
 #include "hardware/irq.h"  // interrupts
 #include "hardware/pwm.h"  // pwm 
 #include "hardware/adc.h"
 #include "hardware/sync.h" // wait for interrupt 
- 
+ #include "pico/time.h"
+
 //#define RR_DEBUG 1
 
 #define PTT_PIN 21  // you can change this to whatever you like
@@ -19,7 +21,6 @@
 #define ADC_RANGE (1 << 12)
 #define ADC_CONVERT (ADC_VREF / (ADC_RANGE - 1))
 
-//#define PLAYBACK_ADC 1
 
 #define BUFFER_SIZE_IN_SECONDS 10
 #define ADC_SAMPLE_RATE 11000
@@ -28,14 +29,22 @@
 #define SAMPLE_SIZE (sizeof(uint8_t))
 #define MIC_SAMPLES_BUFFER_SIZE (BUFFER_SIZE_IN_SECONDS*ADC_SAMPLE_RATE*SAMPLE_SIZE)
 #define SLEEP_TIME_US (unsigned)(((float)1/ADC_SAMPLE_RATE)*1000000)
-uint8_t MIC_SAMPLES[MIC_SAMPLES_BUFFER_SIZE];
-uint32_t MIC_SAMPLES_POS = 0;
+volatile uint8_t MIC_SAMPLES[MIC_SAMPLES_BUFFER_SIZE];
+volatile uint32_t MIC_SAMPLES_POS = 0;
 
 volatile uint8_t g_last_sample;
+
+
+uint32_t msSinceBoot;
 
 #define VOX_DELTA 40
 #define HIGH_VOX_VALUE (125+VOX_DELTA)
 #define LOW_VOX_VALUE (125-VOX_DELTA)
+
+#define STOP_ON_NO_AUDIO 1
+#define SECONDS_WITHOUT_AUDIO_TO_STOP_RECORDING 2
+#define AVG_SAMPLE_COUNT_TO_STOP_REC (ADC_SAMPLE_RATE*SECONDS_WITHOUT_AUDIO_TO_STOP_RECORDING)
+#define MAX_DELTA_TO_INDICATE_STOP 4
 
 
 #ifndef PICO_DEFAULT_LED_PIN
@@ -43,75 +52,17 @@ volatile uint8_t g_last_sample;
 #endif
 #define LED_PIN PICO_DEFAULT_LED_PIN
 
-
-
-#include "fs.h"
-
-lfs_t lfs;
-lfs_file_t file;
-
-
-int filesystem_ops() {
-    // mount the filesystem
-    int err = lfs_mount(&lfs, &PICO_FLASH_CFG);
-
-    // reformat if we can't mount the filesystem
-    // this should only happen on the first boot
-    if (err) {
-        lfs_format(&lfs, &PICO_FLASH_CFG);
-        lfs_mount(&lfs, &PICO_FLASH_CFG);
-    }
-
-    // read current count
-    uint32_t boot_count = 0;
-    lfs_file_open(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT);
-    lfs_file_read(&lfs, &file, &boot_count, sizeof(boot_count));
-
-    // update boot count
-    boot_count += 1;
-    lfs_file_rewind(&lfs, &file);
-    lfs_file_write(&lfs, &file, &boot_count, sizeof(boot_count));
-
-    // remember the storage is not updated until the file is closed successfully
-    lfs_file_close(&lfs, &file);
-
-    // release any resources we were using
-    lfs_unmount(&lfs);
-
-    // print the boot count
-    printf("boot_count: %d\n", boot_count);
-    return 0;
-}
-
-
-/* 
- * This include brings in static arrays which contain audio samples. 
- * if you want to know how to make these please see the python code
- * for converting audio samples into static arrays. 
- */
 #include "sample.h"
 int wav_position = 0;
 int beep_position = 0;
 
-
-bool recording = false;
-bool playback = false;
-
-//uint8_t MIC_SAMPLES[MIC_SAMPLES_BUFFER_SIZE];
-//uint32_t MIC_SAMPLES_POS = 0;
+volatile bool recording = false;
+volatile bool playback = false;
 
 uint8_t* play_buffer = NULL;
 uint32_t play_max_size = 0;
 uint32_t play_pos = 0;
 
-/*
- * PWM Interrupt Handler which outputs PWM level and advances the 
- * current sample. 
- * 
- * We repeat the same value for 8 cycles this means sample rate etc
- * adjust by factor of 8   (this is what bitshifting <<3 is doing)
- * 
- */
 void pwm_interrupt_handler() {
     pwm_clear_irq(pwm_gpio_to_slice_num(AUDIO_PIN));    
     #if PLAYBACK_ADC
@@ -136,10 +87,44 @@ void pwm_interrupt_handler() {
     #endif
 }
 
-void play_sound(uint8_t* buffer, uint32_t size) {
+volatile bool recording_finished = false;
+volatile bool finished_playback = true;
+bool adc_sample_irq_callback(repeating_timer_t *rt) {
+    // Start ADC conversion (assumes channel already selected)
+    uint16_t result = adc_read();  // 12-bit result (0-4095)
+    g_last_sample = result >> 4;      // Convert to 8-bit (0-255)
+    if(recording) {
+        gpio_put(LED_PIN, 1);
+        if(MIC_SAMPLES_POS > (MIC_SAMPLES_BUFFER_SIZE-10)) {
+            // buffer full, force playback sooner than vox.
+            recording_finished = true;
+            recording = false;
+            
+        } else {
+            MIC_SAMPLES[MIC_SAMPLES_POS] = g_last_sample;
+            MIC_SAMPLES_POS++;
+        }
+
+    } else {
+        if(finished_playback) { // what was recorded, was played back already:
+            gpio_put(LED_PIN, 0);
+            if((g_last_sample > HIGH_VOX_VALUE || g_last_sample < LOW_VOX_VALUE)) {
+                MIC_SAMPLES_POS = 0;
+                finished_playback = false;
+                recording_finished = false;
+                recording = true;
+                MIC_SAMPLES[MIC_SAMPLES_POS] = g_last_sample;
+                MIC_SAMPLES_POS++;
+            }
+        }
+    }
+    return true; // keep repeating
+}
+
+void play_sound(volatile uint8_t* buffer, uint32_t size) {
     printf("play_sound buffer=0x%p size=%u...\n", buffer, (unsigned)size);
     sleep_ms(100);
-    play_buffer = buffer;
+    play_buffer = (uint8_t*)buffer;
     play_max_size = size-1;
     play_pos = 0;
     playback = true;
@@ -153,16 +138,65 @@ void play_sound(uint8_t* buffer, uint32_t size) {
     sleep_ms(100);
 }
 
+void playback_sequence() {
+    printf("Playback began.\n");
+    gpio_put(LED_PIN, 0);
+    printf("Press PTT!\n");
+    gpio_put(PTT_PIN, 1);
+    sleep_ms(100);
+    play_sound(WAV_DATA, WAV_DATA_LENGTH/4);
+    sleep_ms(100);
+    play_sound(MIC_SAMPLES, MIC_SAMPLES_POS);
+    sleep_ms(100);
+    play_sound(WAV_DATA, WAV_DATA_LENGTH/4);
+    sleep_ms(100);
+    gpio_put(PTT_PIN, 0);
+    printf("Release PTT!\n");
+    sleep_ms(100);
+    finished_playback = true;
+    recording_finished = false;
+    MIC_SAMPLES_POS = 0;
+}
+
+bool should_stop_recording() {
+    #ifdef STOP_ON_NO_AUDIO
+    if(recording) {
+        int current_pos = MIC_SAMPLES_POS;
+        if(current_pos > AVG_SAMPLE_COUNT_TO_STOP_REC) {
+            float min_sample =  1000000.0f;
+            float max_sample = -1000000.0f;
+            for(int i=0; i<AVG_SAMPLE_COUNT_TO_STOP_REC -1 ; i++) {
+                float sample = MIC_SAMPLES[current_pos - i - 1];
+                if(sample < min_sample) {
+                    min_sample = sample;
+                }
+                if(sample > max_sample) {
+                    max_sample = sample;
+                }
+            }
+            float delta = abs(max_sample - min_sample);
+            //printf("min %f max %f delta %f\n", min_sample, max_sample, delta);
+            if(delta < MAX_DELTA_TO_INDICATE_STOP) {
+                printf("min %f max %f delta %f\n", min_sample, max_sample, delta);
+                printf("Max delta %f lower then MAX_DELTA_TO_INDICATE_STOP(%f) - stop recording.\n", delta, MAX_DELTA_TO_INDICATE_STOP);
+                return true;
+            } else {
+                //printf("Max delta %f\n", delta);
+                return false;
+            }
+        }
+    }
+    return false;
+    #else
+    return false;
+    #endif
+}
 
 int main(void) {
-    /* Overclocking for fun but then also so the system clock is a 
-     * multiple of typical audio sampling rates.
-     */
     stdio_init_all();
     printf("Starting...");
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
-
     // AUDIO OUTPUT START
     set_sys_clock_khz(176000, true); 
     gpio_set_function(AUDIO_PIN, GPIO_FUNC_PWM);
@@ -194,23 +228,16 @@ int main(void) {
     //pwm_config_set_clkdiv(&config, 2.0f); // 44kHz
     //pwm_config_set_clkdiv(&config, 11.0f);  //8kHz
     pwm_config_set_clkdiv(&config, 8.0f); // 11kHz
-
     pwm_config_set_wrap(&config, 250); 
     pwm_init(audio_pin_slice, &config, true);
-
     pwm_set_gpio_level(AUDIO_PIN, 0);
     // AUDIO OUTPUT STUFF END
-
-
     // AUDIO INPUT STUFF BEGIN
     adc_init();
     adc_gpio_init(ADC_PIN);
     adc_select_input( ADC_NUM);
     // Wiring up the device requires 3 jumpers, to connect VCC (3.3v), GND, and AOUT. The example here uses ADC0, which is GP26. Power is supplied from the 3.3V pin.
     // NOTE: uint8_t unsigned samples. Ensure bias of 0.5VCC at the Mic pin!
-    uint adc_raw;
-    // END OF AUDIO INPUT CONFIGURATION
-
     for(int i=0; i<4; i++) {
         printf("waiting... ");
         gpio_put(LED_PIN, 1);
@@ -218,52 +245,31 @@ int main(void) {
         gpio_put(LED_PIN, 0);
         sleep_ms(1000);
     }
-    //printf("filesystem_ops()...\n");
-    //filesystem_ops();
 
+    static repeating_timer_t timer;
+    // 11 kHz sampling -> 1e6 / 11000 = ~91 μs
+    add_repeating_timer_us(-91, adc_sample_irq_callback, NULL, &timer);
     printf("Started.\n");
     while(1) {
-        //__wfi(); // Wait for Interrupt
-        adc_raw = adc_read(); // raw voltage from ADC
-        g_last_sample = adc_raw >> 4; // shift to save only 8 bits
-        #ifdef RR_DEBUG
-            float adc_f = adc_raw * ADC_CONVERT;
-            printf("%.2f %u %u\n", adc_f, (unsigned)adc_raw, (unsigned)g_last_sample);
-            continue;
-        #endif
-        //printf("recording? %u\n", (unsigned)recording);
-        if((g_last_sample > HIGH_VOX_VALUE || g_last_sample < LOW_VOX_VALUE) && !recording) {
-            printf("Recording, sample value: %u\n", (unsigned)g_last_sample);
-            recording = true;
-            MIC_SAMPLES_POS = 0;
+        msSinceBoot = to_ms_since_boot(get_absolute_time());
+        printf("%d ", msSinceBoot);
+        printf("STATUS recording_finished=%i recording=%i finished_playback=%i MIC_SAMPLES_POS= %i / %i\n", recording_finished ? 1 : 0, recording ? 1 : 0, finished_playback ? 1 : 0, MIC_SAMPLES_POS, MIC_SAMPLES_BUFFER_SIZE);
+        if(!recording) {
+            gpio_put(LED_PIN, 1);
+            sleep_ms(100);
+            gpio_put(LED_PIN, 0);
+        }
+        if(recording_finished) {
+            printf("recording finished\n");
+            playback_sequence();
         }
         if(recording) {
-            gpio_put(LED_PIN, 1);
-            if(MIC_SAMPLES_POS > (MIC_SAMPLES_BUFFER_SIZE-10)) {
+            if(should_stop_recording()) {
+                printf("should_stop_recording!\n");
+                recording_finished = true;
                 recording = false;
-                printf("Playback began.\n");
-                gpio_put(LED_PIN, 0);
-                printf("Press PTT!\n");
-                gpio_put(PTT_PIN, 1);
-                sleep_ms(100);
-                play_sound(WAV_DATA, WAV_DATA_LENGTH/4);
-                sleep_ms(100);
-                play_sound(MIC_SAMPLES, MIC_SAMPLES_POS);
-                sleep_ms(100);
-                play_sound(WAV_DATA, WAV_DATA_LENGTH/4);
-                sleep_ms(100);
-                gpio_put(PTT_PIN, 0);
-                printf("Release PTT!\n");
-                sleep_ms(100);
-                continue;
             }
-            MIC_SAMPLES[MIC_SAMPLES_POS] = g_last_sample;
-            MIC_SAMPLES_POS++;
-            //printf("pos %u \n", MIC_SAMPLES_POS);
-
-        } else {
-            //printf("not recording!\n");
         }
-        sleep_us(SLEEP_TIME_US);
+        sleep_ms(1000);
     }
 }
